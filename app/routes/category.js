@@ -3,6 +3,32 @@ const router = express.Router();
 const pool = require('../config/dbcon');
 const authenticateToken = require('../middleware/authMiddleware');
 
+router.get('/home', async (req, res, next) => {
+    try {
+        const { rows } = await pool.query(`
+            SELECT 
+                category.category_id,
+                category.category_name,
+                COUNT(DISTINCT artisan_gallery.gallery_id) AS image_count,
+                MIN(artisan_gallery.image_url) AS image_url
+            FROM category
+            LEFT JOIN artisan 
+                ON artisan.category_id = category.category_id
+            LEFT JOIN artisan_gallery
+                ON artisan_gallery.artisan_id = artisan.artisan_id
+            GROUP BY 
+                category.category_id,
+                category.category_name
+            ORDER BY 
+                category.category_id
+                LIMIT 4;`);
+        res.json(rows);
+        console.log('test');
+    } catch (error) {
+        next(error);
+    }
+});
+
 router.get('/', async (req, res, next) => {
     try {
         const { rows } = await pool.query(`
@@ -85,5 +111,6 @@ router.delete('/:category_id', authenticateToken, async (req, res, next) => {
         });
     }
 });
+
 
 module.exports = router;
