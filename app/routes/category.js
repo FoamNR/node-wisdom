@@ -23,7 +23,6 @@ router.get('/home', async (req, res, next) => {
                 category.category_id
                 LIMIT 4;`);
         res.json(rows);
-        console.log('test');
     } catch (error) {
         next(error);
     }
