@@ -26,6 +26,7 @@ app.use(cookieParser());
 // --- Serve Static Files (Uploads) ---
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/uploads/gallery', express.static(path.join(__dirname, 'uploads/gallery')));
+app.use('/uploads/profile', express.static(path.join(__dirname, 'uploads/profile')));
 
 // --- Mount Routes ---
 app.use('/auth', authRoutes);

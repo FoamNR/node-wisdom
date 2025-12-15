@@ -5,88 +5,96 @@ const authenticateToken = require('../middleware/authMiddleware');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcrypt');
 
-// --- Multer Configuration ---
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // ตรวจสอบว่าเป็นการอัปโหลดแกลเลอรี่หรือเปล่า
-    const isGallery = (req.body && (req.body.isGallery === true || req.body.isGallery === 'true')) || req.path.includes('gallery');
-    const uploadDir = isGallery 
-      ? path.join(__dirname, '../../uploads/gallery')
-      : path.join(__dirname, '../../uploads');
-    
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    destination: (req, file, cb) => {
+        let uploadDir = path.join(__dirname, '../../uploads'); // Default
+
+        // เช็คเงื่อนไขเพื่อแยกโฟลเดอร์
+        const isGallery = (req.body && (req.body.isGallery === true || req.body.isGallery === 'true')) || req.originalUrl.includes('gallery');
+        const isProfile = req.originalUrl.includes('register') || req.originalUrl.includes('users') || req.originalUrl.includes('artisan');
+
+        if (isGallery) {
+            uploadDir = path.join(__dirname, '../../uploads/gallery');
+        } else if (isProfile) {
+            uploadDir = path.join(__dirname, '../../uploads/profile');
+        }
+
+        // สร้างโฟลเดอร์ถ้ายังไม่มี
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
     }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
 });
 
 const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png|gif/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
 
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('ประเภทไฟล์ไม่ถูกต้อง (เฉพาะ jpeg, jpg, png, gif)'));
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb(new Error('ประเภทไฟล์ไม่ถูกต้อง (เฉพาะ jpeg, jpg, png, gif)'));
+        }
     }
-  }
 });
 
-// --- Helper Function: Delete File ---
+// --- 2. ปรับปรุงฟังก์ชันลบไฟล์ ---
 const deleteFile = (filePath) => {
-  if (!filePath) return;
-  
-  try {
-    // รองรับทั้งรูปแบบ full URL (http://...) และ relative path (/uploads/...)
-    let filename = null;
+    if (!filePath) return;
 
     try {
-      // ถ้าเป็น URL เต็ม จะ parse ได้
-      const url = new URL(filePath);
-      filename = path.basename(url.pathname);
-    } catch (e) {
-      // ไม่ใช่ URL -> ใช้ basename ตรง ๆ
-      filename = path.basename(filePath);
+        let filename = null;
+        try {
+            // กรณี filePath มาเป็น URL เต็ม
+            const url = new URL(filePath);
+            filename = path.basename(url.pathname);
+        } catch (e) {
+            // กรณี filePath มาเป็น relative path หรือแค่ชื่อไฟล์
+            filename = path.basename(filePath);
+        }
+
+        // เพิ่ม path ของ profile เข้าไปในการค้นหาด้วย
+        const locations = [
+            path.join(__dirname, '../../uploads', filename),
+            path.join(__dirname, '../../uploads/gallery', filename),
+            path.join(__dirname, '../../uploads/profile', filename) // เพิ่มบรรทัดนี้
+        ];
+
+        let deleted = false;
+        for (const fullPath of locations) {
+            if (fs.existsSync(fullPath)) {
+                fs.unlinkSync(fullPath);
+                console.log('Deleted file:', fullPath);
+                deleted = true;
+                break; // ลบเจอแล้วให้ออกเลย
+            }
+        }
+
+        if (!deleted) {
+            console.log('File to delete not found:', filename);
+        }
+    } catch (error) {
+        console.error('Error deleting file:', error);
     }
-
-    // ตรวจสอบทั้ง uploads และ uploads/gallery
-    const locations = [
-      path.join(__dirname, '../../uploads', filename),
-      path.join(__dirname, '../../uploads/gallery', filename)
-    ];
-
-    for (const fullPath of locations) {
-      if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-        console.log('Deleted file:', fullPath);
-        return;
-      }
-    }
-
-    console.log('File to delete not found in expected locations:', filename);
-  } catch (error) {
-    console.error('Error deleting file:', error);
-  }
 };
 
-// --- Upload Route ---
 router.post('/upload', authenticateToken, upload.single('file'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'ไม่มีไฟล์ที่เลือก' });
     }
 
-    // ตรวจสอบว่าเป็นแกลเลอรี่หรือเปล่า (เช็ค string 'true')
     const isGallery = req.body && (req.body.isGallery === 'true' || req.body.isGallery === true);
     const relativePath = isGallery 
       ? `/uploads/gallery/${req.file.filename}`
@@ -95,7 +103,7 @@ router.post('/upload', authenticateToken, upload.single('file'), (req, res) => {
     
     res.status(200).json({
       message: 'อัปโหลดไฟล์สำเร็จ',
-      path: fullUrl,      // ส่งเป็น URL เต็ม
+      path: fullUrl,
       filename: req.file.filename,
       relativePath
     });
@@ -108,10 +116,9 @@ router.post('/upload', authenticateToken, upload.single('file'), (req, res) => {
 
 router.get('/users', authenticateToken, async (req, res) => {
     try {
-        // 1. รับค่า search จาก query parameters (เช่น /users?search=ผ้าไหม)
         const { search } = req.query; 
 
-        let query = "SELECT user_id, username, fname, lname, profile_img, phone_number, role  FROM users";
+        let query = "SELECT user_id, profile_img, username, fname, lname, profile_img, phone_number, role  FROM users";
         let params = [];
 
 
@@ -130,21 +137,127 @@ router.get('/users', authenticateToken, async (req, res) => {
     }
 });
 
+router.post('/register', authenticateToken, upload.single('profile_img'), async (req, res) => {
+    try {
+        const { username, password, fname, lname, role, phone_number } = req.body;
+        
+        let profile_img_path = null;
+        if (req.file) {
+            profile_img_path = `uploads/profile/${req.file.filename}`; 
+        } else {
+             profile_img_path = req.body.profile_img || null; 
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        const result = await pool.query(
+            'INSERT INTO users (username, password, profile_img, fname, lname, role, phone_number) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            [username, hashedPassword, profile_img_path, fname, lname, role, phone_number]
+        );
+        
+        res.status(201).json({ message: 'User registered successfully', user: result.rows[0] });
+    } catch (error) {
+        console.error('Error registering user:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+router.put('/users/:user_id', authenticateToken, upload.single('profile_img'), async (req, res) => {
+    try {
+        const { user_id } = req.params;
+        const { username, password, fname, lname, role, phone_number } = req.body;
+
+        // 1. ดึงข้อมูล User เก่าออกมาก่อน เพื่อเช็คว่ามีตัวตนจริง และเพื่อเอาข้อมูลเก่ามาใช้กรณีที่ไม่ได้ส่งค่าใหม่มา
+        const userCheck = await pool.query('SELECT * FROM users WHERE user_id = $1', [user_id]);
+        
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const oldUser = userCheck.rows[0];
+
+        // 2. จัดการเรื่องรูปภาพ (Profile Image)
+        let profile_img_path = oldUser.profile_img; // เริ่มต้นด้วยค่าเดิมก่อน
+        if (req.file) {
+            // ถ้ามีการอัปโหลดไฟล์ใหม่ ให้ใช้ path ใหม่
+            profile_img_path = `uploads/profile/${req.file.filename}`;
+            
+            // (Optional) ตรงนี้คุณอาจจะเพิ่มโค้ดลบไฟล์รูปเก่าออกจาก Server ด้วย fs.unlink ก็ได้
+        } else if (req.body.profile_img) {
+            // กรณีส่งมาเป็น Text path (เช่นกรณีไม่ได้เลือกไฟล์ใหม่ แต่ส่งค่าเดิมกลับมา)
+            profile_img_path = req.body.profile_img;
+        }
+
+        // 3. จัดการเรื่องรหัสผ่าน (Password)
+        let hashedPassword = oldUser.password; // เริ่มต้นด้วยรหัสผ่านเดิม
+        if (password && password.trim() !== "") {
+            // ถ้ามีการส่ง password มาใหม่ และไม่ใช่ค่าว่าง -> ให้ทำการ Hash ใหม่
+            hashedPassword = await bcrypt.hash(password, 10);
+        }
+
+        // 4. ทำการ Update ลงฐานข้อมูล
+        const result = await pool.query(
+            `UPDATE users 
+             SET username = $1, password = $2, profile_img = $3, fname = $4, lname = $5, role = $6, phone_number = $7 
+             WHERE user_id = $8 
+             RETURNING *`,
+            [username, hashedPassword, profile_img_path, fname, lname, role, phone_number, user_id]
+        );
+
+        res.status(200).json({ message: 'User updated successfully', user: result.rows[0] });
+
+    } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 router.delete('/users/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
 
     try {
-        // คำสั่ง SQL ลบข้อมูล (Database จะทำหน้าที่ไล่ set null ในตารางอื่นให้เองตามที่ตั้งค่าไว้)
+        // 1. ดึงข้อมูล path รูปภาพปัจจุบัน
+        const userResult = await pool.query(
+            "SELECT profile_img FROM users WHERE user_id = $1",
+            [id]
+        );
+        
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ message: "ไม่พบผู้ใช้งานที่ต้องการลบ" });
+        }
+        
+        const profileImgPath = userResult.rows[0].profile_img;
+
+        // 2. ลบไฟล์รูปภาพ (ถ้ามี)
+        if (profileImgPath) {
+            try {
+                // ดึงเฉพาะชื่อไฟล์ออกมา (เพื่อป้องกันกรณี path ใน DB เป็น URL หรือมี Folder ติดมา)
+                // ตัวอย่าง: "uploads/profile/image-123.jpg" -> "image-123.jpg"
+                const filename = path.basename(profileImgPath);
+
+                // ระบุ Path โฟลเดอร์รูปโปรไฟล์ให้ชัดเจน (อิงจาก Multer config ที่ใช้ ../../uploads)
+                const fullPath = path.join(__dirname, '../../uploads/profile', filename);
+                
+                if (fs.existsSync(fullPath)) {
+                    fs.unlinkSync(fullPath);
+                    console.log(`Successfully deleted file: ${fullPath}`);
+                } else {
+                    console.log(`File not found at: ${fullPath}`);
+                }
+            } catch (err) {
+                console.error("Error deleting file:", err);
+                // ไม่ return error เพื่อให้โปรแกรมทำงานต่อจนจบการลบ User ใน DB
+            }
+        }
+
+        // 3. ลบข้อมูลใน Database
         const query = "DELETE FROM users WHERE user_id = $1";
         const result = await pool.query(query, [id]);
 
-        // ตรวจสอบว่าลบได้จริงไหม
         if (result.rowCount === 0) {
             return res.status(404).json({ message: "ไม่พบผู้ใช้งานที่ต้องการลบ" });
         }
 
-        // ส่งค่ากลับเมื่อลบสำเร็จ
-        res.status(200).json({ message: "ลบผู้ใช้งานเรียบร้อยแล้ว (ข้อมูลที่เกี่ยวข้องถูกตั้งเป็น NULL)", deleted_id: id });
+        res.status(200).json({ message: "ลบผู้ใช้งานเรียบร้อยแล้ว", deleted_id: id });
 
     } catch (error) {
         console.error("Delete Error:", error);
@@ -157,7 +270,6 @@ router.get('/artisans-data',authenticateToken, async (req, res) => {
     try {
         const { search } = req.query;
 
-        // ปรับ join ให้ถูกต้อง: category_id join กับ category_id
         let query = `
             SELECT 
             artisan.artisan_id,
@@ -176,8 +288,8 @@ router.get('/artisans-data',authenticateToken, async (req, res) => {
 
         if (search) {
             query += ` WHERE artisan.fname ILIKE $1 
-                       OR artisan.lname ILIKE $1 
-                       OR category.category_name ILIKE $1 `;
+                        OR artisan.lname ILIKE $1 
+                        OR category.category_name ILIKE $1 `;
             params.push(`%${search}%`);
         }
 
@@ -202,14 +314,11 @@ router.delete('/artisans-data/:id', authenticateToken, async (req, res) => {
             return res.status(404).json({ message: "ไม่พบข้อมูลช่างฝีมือที่ต้องการลบ" });
         }
         
-        // ถ้ามีการลบรูปภาพด้วย ให้ใส่ Logic ลบไฟล์ตรงนี้ (ใช้ fs.unlink)
-
         res.status(200).json({ message: "ลบข้อมูลเรียบร้อยแล้ว", deleted_id: id });
 
     } catch (error) {
         console.error("Delete Error:", error);
 
-        // ดักจับ Error กรณีติด Foreign Key (PostgreSQL code 23503)
         if (error.code === '23503') {
             return res.status(400).json({ 
                 message: "ไม่สามารถลบได้ เนื่องจากมีข้อมูลที่เกี่ยวข้อง (เช่น สินค้า หรือ ประวัติ) อยู่ในระบบ" 
@@ -225,26 +334,22 @@ router.post('/artisan/add', authenticateToken, async (req, res) => {
     const client = await pool.connect();
     
     try {
-        await client.query('BEGIN'); // เริ่ม Transaction
+        await client.query('BEGIN');
 
-        // 1. รับค่าเฉพาะที่ต้องลงตาราง artisan
         const { 
             fname, 
             lname, 
-            profile_img,     // Nullable
-            birth_date,      // Required (Date: YYYY-MM-DD)
-            address,         // Required
-            province,        // Required
-            district,        // Required
-            category_name,   // เพื่อเอาไปหา ID
-            category_id,     // หรือส่ง ID มาโดยตรง
-            biography,       // Required
-            status           // Optional (Default: 'ฉบับร่าง')
+            profile_img,
+            birth_date,
+            address,
+            province,
+            district,
+            category_name,
+            category_id,
+            biography,
+            status
         } = req.body;
 
-        // ---------------------------------------------------------
-        // 2. เตรียม Category ID (เพราะเป็น FK ในตาราง artisan)
-        // ---------------------------------------------------------
         let finalCategoryId = null;
 
         if (category_id) {
@@ -263,9 +368,6 @@ router.post('/artisan/add', authenticateToken, async (req, res) => {
             throw new Error("กรุณาระบุหมวดหมู่ (category_name หรือ category_id)");
         }
 
-        // ---------------------------------------------------------
-        // 3. Insert ลงตาราง artisan
-        // ---------------------------------------------------------
         const insertArtisanQuery = `
             INSERT INTO artisan (
                 fname, 
@@ -283,7 +385,6 @@ router.post('/artisan/add', authenticateToken, async (req, res) => {
             RETURNING artisan_id, fname, lname, status
         `;
         
-        // กำหนดค่า status ถ้าไม่ส่งมาให้ใช้ default เป็น 'ฉบับร่าง'
         const artisanStatus = status || 'ฉบับร่าง'; 
 
         const artisanRes = await client.query(insertArtisanQuery, [
@@ -299,7 +400,7 @@ router.post('/artisan/add', authenticateToken, async (req, res) => {
             artisanStatus
         ]);
 
-        await client.query('COMMIT'); // ยืนยันข้อมูล
+        await client.query('COMMIT');
 
         res.status(201).json({
             message: "เพิ่มข้อมูลปราชญ์เรียบร้อยแล้ว",
@@ -308,18 +409,17 @@ router.post('/artisan/add', authenticateToken, async (req, res) => {
         
 
     } catch (error) {
-        await client.query('ROLLBACK'); // ยกเลิกถ้ามี Error
+        await client.query('ROLLBACK');
         console.error("Add Artisan Error:", error);
         res.status(500).json({ message: "Server Error", error: error.message });
     } finally {
-        client.release(); // คืน connection
+        client.release();
     }
 });
 router.get('/artisan/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         
-        // ดึงข้อมูล Artisan พร้อมชื่อหมวดหมู่
         const query = `
             SELECT 
                 artisan.*,
@@ -342,7 +442,6 @@ router.get('/artisan/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// --- 2. UPDATE Artisan (บันทึกการแก้ไข) ---
 router.put('/artisan/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     
@@ -364,7 +463,6 @@ router.put('/artisan/:id', authenticateToken, async (req, res) => {
     }
 
     try {
-        // ดึงข้อมูล Artisan เก่า เพื่อหาตำแหน่งรูปเก่า
         const oldArtisanQuery = `SELECT profile_img FROM artisan WHERE artisan_id = $1`;
         const oldArtisanRes = await pool.query(oldArtisanQuery, [id]);
         
@@ -374,12 +472,9 @@ router.put('/artisan/:id', authenticateToken, async (req, res) => {
 
         const oldProfileImg = oldArtisanRes.rows[0].profile_img;
 
-        // ถ้ารูปเปลี่ยนหรือลบ ให้ลบรูปเก่า
         if (oldProfileImg && oldProfileImg !== profile_img) {
             deleteFile(oldProfileImg);
         }
-        // ถ้าส่ง profile_img เป็น null (ลบรูป)
-        // จะลบรูปเก่าและตั้งค่า profile_img ใน DB เป็น null
         let finalProfileImg = profile_img;
         if (profile_img === null && oldProfileImg) {
             deleteFile(oldProfileImg);
@@ -430,7 +525,5 @@ router.put('/artisan/:id', authenticateToken, async (req, res) => {
         res.status(500).json({ message: "Server Error", error: error.message });
     }
 });
-
-
 
 module.exports = router;
