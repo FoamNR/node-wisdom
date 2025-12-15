@@ -109,6 +109,12 @@ router.post('/logout', (req, res) => {
         secure: false,
         sameSite: "strict",
         path: "/"
+    })
+    res.clearCookie("access_token", {
+        httpOnly: true,
+        secure: false,
+        sameSite: "strict",
+        path: "/"
     });
     res.status(200).json({ message: "Logout สำเร็จ" });
 });

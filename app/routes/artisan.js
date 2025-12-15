@@ -9,13 +9,18 @@ router.get('/', async(req, res) => {
         // รับค่า parameter ทั้งหมด
         const { search, category, province } = req.query;
 
-        // เริ่มต้น Query
-        let queryText = 'SELECT artisan_id, fname, lname, profile_img, category_name, province FROM artisan join category on artisan.category_id = category.category_id WHERE 1=1';
+        // --- จุดที่แก้ไข: เปลี่ยนจาก WHERE 1=1 เป็นระบุเงื่อนไข status ตรงนี้เลย ---
+        let queryText = `SELECT artisan_id, fname, lname, profile_img, category_name, province 
+                         FROM artisan 
+                         JOIN category ON artisan.category_id = category.category_id 
+                         WHERE artisan.status = 'เผยแพร่'`;
+        
         let queryParams = [];
         let paramCount = 1;
 
         // 1. เงื่อนไข Search Text (ชื่อ, นามสกุล)
         if (search) {
+            // ใช้ AND เชื่อมต่อจากเงื่อนไข status
             queryText += ` AND (fname ILIKE $${paramCount} OR lname ILIKE $${paramCount})`;
             queryParams.push(`%${search}%`);
             paramCount++;
@@ -225,7 +230,37 @@ router.get('/category/list', async (req, res) => {
     }  
 });
 
+router.get('/profile/:id', async (req, res) => {
+    try {
+        const artisan_id = req.params.id;
 
+        const result = await pool.query(
+            `SELECT 
+                artisan.artisan_id,
+                artisan.fname,
+                artisan.lname,
+                artisan.profile_img,
+                artisan.district,
+                artisan.province,
+                artisan.biography,
+                category.category_name,
+                artisan_gallery.image_url
+            FROM artisan
+            JOIN category
+                ON artisan.category_id = category.category_id
+            LEFT JOIN artisan_gallery
+                ON artisan_gallery.artisan_id = artisan.artisan_id
+            WHERE artisan.artisan_id = $1
+            ORDER BY artisan_gallery.gallery_id ASC`,
+            [artisan_id]
+        );
+
+        res.status(200).json(result.rows);  // ส่งหลายแถว
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server Error" });
+    }
+});
 
 
 module.exports = router;
