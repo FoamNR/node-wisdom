@@ -11,6 +11,7 @@ const adminRoutes = require("./app/routes/admin");
 const galleryRoutes = require("./app/routes/gallery");
 const categoryRoutes = require("./app/routes/category");
 const galleryPageRoutes = require("./app/routes/galleryPage")
+const activityRoutes = require("./app/routes/activity");
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use('/admin', adminRoutes);
 app.use('/gallery', galleryRoutes);
 app.use('/category', categoryRoutes);
 app.use('/galleryPage', galleryPageRoutes);
+app.use('/activity', activityRoutes);
 
 // --- Error Handling ---
 app.use((err, req, res, next) => {

@@ -330,11 +330,13 @@ router.delete('/artisans-data/:id', authenticateToken, async (req, res) => {
 });
 
 router.post('/artisan/add', authenticateToken, async (req, res) => {
-
     const client = await pool.connect();
-    
+
     try {
         await client.query('BEGIN');
+
+        // ผู้ที่เพิ่มข้อมูล (มาจาก token)
+        const created_by = req.user.user_id;
 
         const { 
             fname, 
@@ -344,61 +346,80 @@ router.post('/artisan/add', authenticateToken, async (req, res) => {
             address,
             province,
             district,
-            category_name,
             category_id,
+            category_name,
             biography,
             status
         } = req.body;
 
-        let finalCategoryId = null;
+        // ตรวจข้อมูลจำเป็น
+        if (!fname || !lname) {
+            throw new Error("กรุณาระบุชื่อและนามสกุล");
+        }
+
+        // หา category_id
+        let finalCategoryId;
 
         if (category_id) {
             finalCategoryId = category_id;
         } else if (category_name) {
             const catRes = await client.query(
-                `SELECT category_id FROM category WHERE category_name = $1`, 
+                `SELECT category_id FROM category WHERE category_name = $1`,
                 [category_name]
             );
-            if (catRes.rows.length > 0) {
-                finalCategoryId = catRes.rows[0].category_id;
-            } else {
-                 throw new Error(`ไม่พบหมวดหมู่: ${category_name}`);
+
+            if (catRes.rowCount === 0) {
+                throw new Error(`ไม่พบหมวดหมู่: ${category_name}`);
             }
+
+            finalCategoryId = catRes.rows[0].category_id;
         } else {
-            throw new Error("กรุณาระบุหมวดหมู่ (category_name หรือ category_id)");
+            throw new Error("กรุณาระบุ category_id หรือ category_name");
         }
 
-        const insertArtisanQuery = `
-            INSERT INTO artisan (
-                fname, 
-                lname, 
-                profile_img, 
-                birth_date, 
-                address, 
-                province, 
-                district, 
-                category_id, 
-                biography, 
-                status
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING artisan_id, fname, lname, status
-        `;
-        
-        const artisanStatus = status || 'ฉบับร่าง'; 
+        const artisanStatus = status || 'ฉบับร่าง';
 
-        const artisanRes = await client.query(insertArtisanQuery, [
-            fname, 
-            lname, 
-            profile_img || null, 
-            birth_date, 
-            address, 
-            province, 
-            district, 
-            finalCategoryId, 
-            biography,
-            artisanStatus
-        ]);
+        // เพิ่ม artisan
+        const artisanRes = await client.query(
+            `
+            INSERT INTO artisan (
+                fname,
+                lname,
+                profile_img,
+                birth_date,
+                address,
+                province,
+                district,
+                category_id,
+                biography,
+                status,
+                created_by,
+                created_at
+            )
+            VALUES (
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()
+            )
+            RETURNING
+                artisan_id,
+                fname,
+                lname,
+                status,
+                created_at
+            `,
+            [
+                fname,
+                lname,
+                profile_img || null,
+                birth_date || null,
+                address,
+                province,
+                district,
+                finalCategoryId,
+                biography,
+                artisanStatus,
+                created_by
+            ]
+        );
 
         await client.query('COMMIT');
 
@@ -406,16 +427,18 @@ router.post('/artisan/add', authenticateToken, async (req, res) => {
             message: "เพิ่มข้อมูลปราชญ์เรียบร้อยแล้ว",
             data: artisanRes.rows[0]
         });
-        
 
     } catch (error) {
         await client.query('ROLLBACK');
         console.error("Add Artisan Error:", error);
-        res.status(500).json({ message: "Server Error", error: error.message });
+        res.status(500).json({
+            message: error.message
+        });
     } finally {
         client.release();
     }
 });
+
 router.get('/artisan/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -442,9 +465,11 @@ router.get('/artisan/:id', authenticateToken, async (req, res) => {
     }
 });
 
+
 router.put('/artisan/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
-    
+    const createByUserId = req.user.user_id;
+
     const { 
         fname, 
         lname, 
@@ -455,32 +480,48 @@ router.put('/artisan/:id', authenticateToken, async (req, res) => {
         district, 
         category_id,
         biography, 
-        status 
+        status
     } = req.body;
 
+    // validate required fields
     if (!fname || !lname || !category_id) {
-         return res.status(400).json({ message: "กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน" });
+        return res.status(400).json({ 
+            message: "กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน" 
+        });
     }
 
     try {
-        const oldArtisanQuery = `SELECT profile_img FROM artisan WHERE artisan_id = $1`;
+        // ดึงข้อมูลรูปเดิม
+        const oldArtisanQuery = `
+            SELECT profile_img 
+            FROM artisan 
+            WHERE artisan_id = $1
+        `;
         const oldArtisanRes = await pool.query(oldArtisanQuery, [id]);
-        
+
         if (oldArtisanRes.rows.length === 0) {
-            return res.status(404).json({ message: "ไม่พบข้อมูลปราชญ์ที่ต้องการแก้ไข" });
+            return res.status(404).json({ 
+                message: "ไม่พบข้อมูลปราชญ์ที่ต้องการแก้ไข" 
+            });
         }
 
         const oldProfileImg = oldArtisanRes.rows[0].profile_img;
 
-        if (oldProfileImg && oldProfileImg !== profile_img) {
+        // จัดการรูปโปรไฟล์
+        let finalProfileImg = profile_img;
+
+        // เปลี่ยนรูปใหม่ → ลบรูปเก่า
+        if (oldProfileImg && profile_img && oldProfileImg !== profile_img) {
             deleteFile(oldProfileImg);
         }
-        let finalProfileImg = profile_img;
+
+        // ลบรูป (ส่ง null มา)
         if (profile_img === null && oldProfileImg) {
             deleteFile(oldProfileImg);
             finalProfileImg = null;
         }
 
+        // UPDATE artisan (แก้ created_by)
         const query = `
             UPDATE artisan 
             SET 
@@ -494,36 +535,42 @@ router.put('/artisan/:id', authenticateToken, async (req, res) => {
                 category_id = $8,
                 biography = $9,
                 status = $10,
-                updated_at = NOW() 
-            WHERE artisan_id = $11
+                created_by = $11,
+                updated_at = NOW()
+            WHERE artisan_id = $12
             RETURNING *
         `;
 
         const values = [
-            fname, 
-            lname, 
-            finalProfileImg, 
-            birth_date, 
-            address, 
-            province, 
-            district, 
-            category_id, 
-            biography, 
+            fname,
+            lname,
+            finalProfileImg,
+            birth_date,
+            address,
+            province,
+            district,
+            category_id,
+            biography,
             status,
-            id 
+            createByUserId, // created_by จาก token
+            id
         ];
 
         const result = await pool.query(query, values);
 
-        res.status(200).json({ 
-            message: "แก้ไขข้อมูลเรียบร้อยแล้ว", 
-            data: result.rows[0] 
+        res.status(200).json({
+            message: "แก้ไขข้อมูลเรียบร้อยแล้ว",
+            data: result.rows[0]
         });
 
     } catch (error) {
         console.error("Update Artisan Error:", error);
-        res.status(500).json({ message: "Server Error", error: error.message });
+        res.status(500).json({ 
+            message: "Server Error", 
+            error: error.message 
+        });
     }
 });
+
 
 module.exports = router;

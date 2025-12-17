@@ -52,21 +52,39 @@ router.get('/', async (req, res, next) => {
     }
 });
 
-router.post('/add', authenticateToken, async (req, res, next) => {
+router.post('/add', authenticateToken, async (req, res) => {
     try {
         const { category_name, description } = req.body;
-        const { rows } = await pool.query(`insert into category (category_name, description) values ($1, $2) returning *`, [category_name, description]);
-        res.json({
+        const created_by = req.user.user_id; // มาจาก token
+
+        const { rows } = await pool.query(
+            `
+            INSERT INTO category (
+                category_name,
+                description,
+                created_by,
+                created_at
+            )
+            VALUES ($1, $2, $3, NOW())
+            RETURNING *
+            `,
+            [category_name, description, created_by]
+        );
+
+        res.status(201).json({
             message: "Category added successfully",
             category: rows[0]
         });
     } catch (error) {
-        res.json({
+        console.error(error);
+        res.status(500).json({
             message: "Error adding category",
             error: error.message
         });
     }
 });
+
+
 
 router.get('/:category_id', authenticateToken, async (req, res, next) => {
     try {
@@ -82,21 +100,33 @@ router.get('/:category_id', authenticateToken, async (req, res, next) => {
     }
 });
 
-router.put('/:category_id', authenticateToken, async (req, res, next) => {
+router.put('/:category_id', authenticateToken, async (req, res) => {
     try {
         const { category_id } = req.params;
+        const updated_by = req.user.user_id; // มาจาก token
         const { category_name, description } = req.body;
-        await pool.query(`update category set category_name = $1, description = $2 where category_id = $3`, [category_name, description, category_id]);
+
+        await pool.query(
+            `UPDATE category 
+             SET category_name = $1,
+                 description = $2,
+                 updated_by = $3,
+                 updated_at = NOW()
+             WHERE category_id = $4`,
+            [category_name, description, updated_by, category_id]
+        );
+
         res.json({
             message: "Category updated successfully"
         });
     } catch (error) {
-        res.json({
+        res.status(500).json({
             message: "Error updating category",
             error: error.message
         });
     }
 });
+
 
 router.delete('/:category_id', authenticateToken, async (req, res, next) => {
     try {
