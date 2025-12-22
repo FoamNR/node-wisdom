@@ -13,14 +13,20 @@ const categoryRoutes = require("./app/routes/category");
 const galleryPageRoutes = require("./app/routes/galleryPage")
 const activityRoutes = require("./app/routes/activity");
 const searchRoutes = require("./app/routes/search");
+const logRoutes = require("./app/routes/log");
 
 const app = express();
 
 // --- Middleware ---
 app.use(cors({
-  origin: 'http://localhost:3000', // ระบุ URL ของ Frontend
+  origin: function (origin, callback) {
+    // อนุญาตให้ผ่านหมด ถ้าไม่มี origin (เช่น server-to-server) หรือเป็นช่วง Dev
+    // คำเตือน: ใน Production ควรระบุ domain จริงๆ แทน
+    return callback(null, true);
+  },
   credentials: true
 }));
+
 app.use(express.json()); // จำเป็นมาก เพื่อให้อ่าน body json ได้
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -40,6 +46,7 @@ app.use('/category', categoryRoutes);
 app.use('/galleryPage', galleryPageRoutes);
 app.use('/activity', activityRoutes);
 app.use('/search', searchRoutes);
+app.use('/log', logRoutes);
 
 // --- Error Handling ---
 app.use((err, req, res, next) => {

@@ -23,7 +23,7 @@ router.get('/artisan', authenticateToken, async (req, res) => {
                 END AS created_at
             FROM artisan
             JOIN users ON artisan.created_by = users.user_id
-            ORDER BY artisan.created_at DESC
+            ORDER BY artisan.artisan_id DESC
             LIMIT 1
         `);
 

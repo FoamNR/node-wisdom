@@ -322,6 +322,20 @@ router.delete('/artisans-data/:id', authenticateToken, async (req, res) => {
             return res.status(404).json({ message: "ไม่พบข้อมูลช่างฝีมือที่ต้องการลบ" });
         }
 
+        const logData = {
+            ip: req.ip,
+            user_agent: req.headers['user-agent'],
+            path: req.originalUrl,
+            action_type: 'DELETE_ARTISAN',
+            http_method: req.method, // DELETE
+            created_at: new Date()
+        }
+
+        await pool.query(
+            `INSERT INTO audit_log (log_data) VALUES ($1)`,
+            [logData]
+        )
+
         res.status(200).json({ message: "ลบข้อมูลเรียบร้อยแล้ว", deleted_id: id });
 
     } catch (error) {
@@ -565,6 +579,20 @@ router.put('/artisan/:id', authenticateToken, async (req, res) => {
         ];
 
         const result = await pool.query(query, values);
+
+                const logData = {
+            ip: req.ip,
+            user_agent: req.headers['user-agent'],
+            path: req.originalUrl,
+            action_type: 'PUT_ARTISAN',
+            http_method: req.method, // PUT
+            created_at: new Date()
+        }
+
+        await pool.query(
+            `INSERT INTO audit_log (log_data) VALUES ($1)`,
+            [logData]
+        )
 
         res.status(200).json({
             message: "แก้ไขข้อมูลเรียบร้อยแล้ว",
