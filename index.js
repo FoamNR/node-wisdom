@@ -14,6 +14,7 @@ const galleryPageRoutes = require("./app/routes/galleryPage")
 const activityRoutes = require("./app/routes/activity");
 const searchRoutes = require("./app/routes/search");
 const logRoutes = require("./app/routes/log");
+const galleryAdminRoutes = require("./app/routes/galleryadmin");
 
 const app = express();
 
@@ -47,6 +48,7 @@ app.use('/galleryPage', galleryPageRoutes);
 app.use('/activity', activityRoutes);
 app.use('/search', searchRoutes);
 app.use('/log', logRoutes);
+app.use('/gallery-admin', galleryAdminRoutes);
 
 // --- Error Handling ---
 app.use((err, req, res, next) => {
