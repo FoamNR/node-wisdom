@@ -15,6 +15,7 @@ const activityRoutes = require("./app/routes/activity");
 const searchRoutes = require("./app/routes/search");
 const logRoutes = require("./app/routes/log");
 const galleryAdminRoutes = require("./app/routes/galleryadmin");
+const awardRoutes = require("./app/routes/award");
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/uploads/gallery', express.static(path.join(__dirname, 'uploads/gallery')));
 app.use('/uploads/profile', express.static(path.join(__dirname, 'uploads/profile')));
+app.use('/uploads/award', express.static(path.join(__dirname, 'uploads/award')));
 
 // --- Mount Routes ---
 app.use('/auth', authRoutes);
@@ -49,6 +51,7 @@ app.use('/activity', activityRoutes);
 app.use('/search', searchRoutes);
 app.use('/log', logRoutes);
 app.use('/gallery-admin', galleryAdminRoutes);
+app.use('/award', awardRoutes);
 
 // --- Error Handling ---
 app.use((err, req, res, next) => {
